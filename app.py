@@ -86,7 +86,7 @@ def scroll_into_view():
 def embed(tweet):
     try:
         url = f'https://publish.twitter.com/oembed?url={tweet}'
-        response = requests.get(url)
+        response = requests.get(url, timeout=(5, 2))
 
         regex = r'<blockquote class="twitter-tweet"(?: [^>]+)?><p[^>]*>(.*?)<\/p>.*?&mdash; (.*?)<\/a>'
         regex_author = r'^(.*?)\s*\('
@@ -137,7 +137,7 @@ def embed(tweet):
 def tweets_count(handle, saved_at):
     url = f'https://web.archive.org/cdx/search/cdx?url=https://twitter.com/{handle}/status/*&output=json&from={saved_at[0]}&to={saved_at[1]}'
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=(10, 5))
 
         if response.status_code == 200:
             data = response.json()
@@ -162,7 +162,7 @@ def query_api(handle, limit, offset, saved_at):
 
     url = f'https://web.archive.org/cdx/search/cdx?url=https://twitter.com/{handle}/status/*&output=json&limit={limit}&offset={offset}&from={saved_at[0]}&to={saved_at[1]}'
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=(10, 5))
         response.raise_for_status()
 
         if response.status_code == 200 or response.status_code == 304:
@@ -223,51 +223,50 @@ def display_tweet():
         st.write(f'**{user_info[0]}**')
         st.divider()
     else:
-        print('tweet')
         st.warning('MIME Type was not parsed.')
         st.divider()
 
 def display_not_tweet():
     if mimetype[i] == 'application/json':
         st.error('Tweet has been deleted.')
-        try:
-            response_json = requests.get(link)
 
-            if response_json.status_code == 200:
-                json_data = response_json.json()
+        # try:
+        #     response_json = requests.get(link, timeout=(10, 5))
 
-                if 'data' in json_data:
-                    if 'text' in json_data['data']:
-                        json_text = json_data['data']['text']
-                    else:
-                        json_text = json_data['data']
-                else:
-                    if 'text' in json_data:
-                        json_text = json_data['text']
-                    else:
-                        json_text = json_data
+        #     if response_json.status_code == 200:
+        #         json_data = response_json.json()
 
-                st.code(json_text)
-                st.json(json_data, expanded=False)
-                st.divider()
-            else:
-                st.error(response_json.status_code)
-                st.divider()
-        except requests.exceptions.Timeout:
-            st.error('Connection to web.archive.org timed out.')
-            st.divider()
-        except requests.exceptions.ConnectionError:
-            st.error('Failed to establish a new connection with web.archive.org.')
-            st.divider()
-        except UnboundLocalError:
-            st.empty()
+        #         if 'data' in json_data:
+        #             if 'text' in json_data['data']:
+        #                 json_text = json_data['data']['text']
+        #             else:
+        #                 json_text = json_data['data']
+        #         else:
+        #             if 'text' in json_data:
+        #                 json_text = json_data['text']
+        #             else:
+        #                 json_text = json_data
+
+        #         st.code(json_text)
+        #         st.json(json_data, expanded=False)
+        #         st.divider()
+        #     else:
+        #         st.error(response_json.status_code)
+        #         st.divider()
+        # except requests.exceptions.Timeout:
+        #     st.error('Connection to web.archive.org timed out.')
+        #     st.divider()
+        # except requests.exceptions.ConnectionError:
+        #     st.error('Failed to establish a new connection with web.archive.org.')
+        #     st.divider()
+        # except UnboundLocalError:
+        #     st.empty()
     elif mimetype[i] == 'text/html':
         st.error('Tweet has been deleted.')
 
         components.iframe(link, height=500, scrolling=True)
         st.divider()
     else:
-        print('display_not_tweet')
         st.warning('MIME Type was not parsed.')
         st.divider()
 
@@ -281,7 +280,13 @@ st.session_state.saved_at = st.slider('Tweets saved between', 2006, year, (2006,
 
 tweets_per_page = st.slider('Tweets per page', 25, 250, 25, 25)
 
-only_deleted = st.checkbox('Only deleted tweets')
+col1, col2 = st.columns(2)
+
+with col1:
+   only_deleted = st.checkbox('Only deleted tweets')
+
+with col2:
+   only_unique_tweets = st.checkbox('Only unique tweets', value=True)
 
 query = st.button('Query', type='primary', use_container_width=True)
 
@@ -319,11 +324,23 @@ if query or st.session_state.count:
             start_index = st.session_state.offset
             end_index = min(st.session_state.count, start_index + tweets_per_page)
 
+            url_list = []
+
             with st.spinner('Fetching...'):
                 for i in range(tweets_per_page):
                     try:
                         link = parsed_links[i]
                         tweet = embed(tweet_links[i])
+
+                        if only_unique_tweets:
+                            regex = re.compile(r'^(.*?)(?:\?|$)')
+                            match = regex.search(tweet_links[i])
+                            only_tweet_url = match.group(1)
+
+                            if only_tweet_url in url_list:
+                                st.warning('Duplicate')
+                            
+                            url_list.append(only_tweet_url)
 
                         if not only_deleted:
                             attr(i)
